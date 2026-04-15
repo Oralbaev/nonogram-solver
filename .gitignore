@@ -35,5 +35,8 @@ dist/
 # Debug / generated output
 debug_output/
 
+# Generated solver output
+solution.png
+
 # Logs
 *.log

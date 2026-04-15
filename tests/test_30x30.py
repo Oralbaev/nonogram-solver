@@ -2,26 +2,32 @@
 
 Generates a known solution, derives clues from it,
 runs the solver, verifies the result, and reports timing.
+
+Run from the project root:
+    python tests/test_30x30.py
 """
 
 import sys
+import os
 import time
+
+# Make the project root importable when running this file directly.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-from solver import UNKNOWN, EMPTY, FILLED, solve, validate, get_column
-from formatter import format_board
+from src.solver import UNKNOWN, EMPTY, FILLED, solve, validate, get_column
+from src.formatter import format_board
 
 
 # ---------------------------------------------------------------------------
 # Build a 30x30 solution with a visible pattern
-# (3x3 block checkerboard — enough variety to make the puzzle non-trivial)
+# (varied diagonals and blocks — diverse clues per row/column so propagation
+#  alone can resolve most of the puzzle)
 # ---------------------------------------------------------------------------
 
 SIZE = 30
 
-# Pattern: varied diagonals and blocks — produces diverse clues per row/column
-# so propagation alone can resolve most of the puzzle.
 solution: list[list[int]] = [
     [
         FILLED if (
@@ -58,17 +64,14 @@ col_clues = [extract_clue(get_column(solution, c)) for c in range(SIZE)]
 # Print puzzle info
 # ---------------------------------------------------------------------------
 
-print(f"Grid size : {SIZE}×{SIZE}")
-print(f"Total cells : {SIZE * SIZE}")
+n_rows = SIZE
+n_cols = SIZE
+print(f"Grid size   : {n_rows}×{n_cols}")
+print(f"Total cells : {n_rows * n_cols}")
 filled_count = sum(cell == FILLED for row in solution for cell in row)
-print(f"Filled cells: {filled_count}  ({100 * filled_count // SIZE ** 2}%)")
+print(f"Filled cells: {filled_count}  ({100 * filled_count // (n_rows * n_cols)}%)")
 print()
 
-max_patterns_row = max(
-    len([1]) for _ in row_clues  # placeholder — actual count printed below
-)
-
-# Show a few clues as sample
 print("Sample row clues (first 5):")
 for i, c in enumerate(row_clues[:5]):
     print(f"  Row {i+1:2d}: {c}")
@@ -82,7 +85,7 @@ print()
 # Solve and time
 # ---------------------------------------------------------------------------
 
-board = [[UNKNOWN] * SIZE for _ in range(SIZE)]
+board = [[UNKNOWN] * n_cols for _ in range(n_rows)]
 
 print("Solving...", flush=True)
 t0 = time.perf_counter()

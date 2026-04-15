@@ -4,7 +4,7 @@ import os
 import struct
 import zlib
 
-from solver import FILLED, EMPTY, Board
+from .solver import FILLED, EMPTY, Board
 
 CELL_SYMBOLS = {
     FILLED: "■",

@@ -1,0 +1,4 @@
+# Core solver, formatter, and main.py work with stdlib only.
+# parser.py (image-to-clues) requires the packages below.
+opencv-python>=4.5
+numpy>=1.21

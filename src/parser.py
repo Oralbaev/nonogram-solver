@@ -80,7 +80,8 @@ import json
 # Configuration
 # ---------------------------------------------------------------------------
 
-DEBUG_DIR = "debug_output"
+# Absolute path so debug output lands at the project root regardless of CWD.
+DEBUG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "debug_output")
 DARK_THRESH = 160    # gray < this → dark pixel
 LINE_FRAC   = 0.25   # row/col is a grid line if frac of its pixels are dark
 

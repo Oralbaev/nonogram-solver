@@ -1,13 +1,25 @@
-"""Entry point for the nonogram solver."""
+"""Entry point for the nonogram solver.
+
+Usage:
+    python main.py
+
+The puzzle clues are defined below. Edit row_clues and col_clues to change
+the puzzle. The solver works for any rectangular grid; dimensions are inferred
+automatically from the number of clue lists.
+"""
 
 import sys
 sys.stdout.reconfigure(encoding="utf-8")
 
 import os
 
-from solver import UNKNOWN, solve, validate
-from formatter import render_png
-from parser import parse_png
+from src.solver import UNKNOWN, solve, validate
+from src.formatter import render_png
+
+# ---------------------------------------------------------------------------
+# Puzzle definition (20 rows × 25 columns)
+# Edit these lists to solve a different puzzle.
+# ---------------------------------------------------------------------------
 
 row_clues = [
     [7, 4, 2],
@@ -31,6 +43,7 @@ row_clues = [
     [2, 6],
     [14, 1],
 ]
+
 col_clues = [
     [1, 1, 1],
     [8],
@@ -58,16 +71,16 @@ col_clues = [
     [6],
     [2, 2],
 ]
-pathpng = sys.argv[1] if len(sys.argv) > 1 else "matrix.png"
 
 
 def main() -> None:
-    """Run the nonogram solver and print the result."""
+    """Run the nonogram solver and save the result as solution.png."""
     rows = len(row_clues)
     cols = len(col_clues)
     board = [[UNKNOWN] * cols for _ in range(rows)]
 
     print("=== Nonogram Solver ===")
+    print(f"Grid: {rows} rows × {cols} cols")
     print()
 
     solution = solve(board, row_clues, col_clues)
@@ -82,7 +95,8 @@ def main() -> None:
 
     path = render_png(solution)
     print(f"Saved: {path}")
-    os.startfile(path)
+    if sys.platform == "win32":
+        os.startfile(path)
 
 
 if __name__ == "__main__":

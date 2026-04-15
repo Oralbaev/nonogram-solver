@@ -1,76 +1,95 @@
 # Nonogram Solver
 
-A Python CLI tool that solves nonogram puzzles of any size from row and column clues.
+A Python CLI tool that solves nonogram (picross) puzzles from manually entered row and column clues.
+
+> This project was built with the help of [Claude Code](https://claude.ai/code) by Anthropic.
+
+---
 
 ## What it does
 
-Given row and column clues, the solver fills in a grid using:
+You provide the row and column clues for a nonogram puzzle.
+The solver fills in the grid using two techniques:
 
-1. **Constraint propagation** — for each line, finds all patterns compatible with
-   the clue and the current board state, then fixes any cell that is the same
-   across every compatible pattern.
-2. **Backtracking** — if propagation stalls, guesses a cell value and recurses.
+1. **Constraint propagation** — for each row and column, all valid arrangements compatible with the clue and the current board state are generated. Any cell that is the same in *every* compatible arrangement is fixed immediately.
+2. **Backtracking with MRV** — if propagation stalls, the solver picks the most constrained unknown cell (the one belonging to the line with fewest valid arrangements) and tries both values recursively.
 
-The grid size is derived automatically from the number of clues.
-
----
-
-## Algorithm optimizations
-
-Three bottlenecks from the naive version were identified and fixed:
-
-### 1. Redundant pattern generation → LRU cache
-
-**Old:** `generate_patterns(clue, length)` was called on every `infer_line` call,
-regenerating the same pattern list repeatedly — even for lines that had not changed.
-For a 30-cell line with a clue like `[5, 5, 5]` this can mean thousands of patterns
-rebuilt from scratch on every propagation pass.
-
-**Fix:** `@lru_cache` on `_generate_patterns(tuple(clue), length)`.
-Patterns for a given `(clue, length)` pair are generated once and reused forever.
+The solution is saved as a PNG image (`solution.png`).
 
 ---
 
-### 2. Full board scan on every iteration → Dirty queue
+## Current features (working)
 
-**Old:** The propagation loop iterated every row, then every column, on every pass,
-even if nothing in that row/column had changed since the last check.
-Cost per pass: `O(rows × cols)` even when most lines are already stable.
-
-**Fix:** A dirty-queue tracks only lines with recent cell changes.
-When a cell in row `r` changes, column `c` is added to the dirty set, and vice versa.
-Only those lines are re-examined — untouched lines are skipped entirely.
-
----
-
-### 3. Naive cell selection for backtracking → MRV heuristic
-
-**Old:** Backtracking simply picked the first unknown cell `(r=0, c=0)` in scan order,
-regardless of how constrained its row or column was. This leads to deep, wide search
-trees when the chosen line still has many valid arrangements.
-
-**Fix:** MRV (Minimum Remaining Values) — scan all lines with unknowns, count their
-compatible patterns, and branch on the cell whose line has the fewest options.
-The most constrained line is the one most likely to produce a contradiction quickly,
-which prunes the search tree dramatically.
+- Solves nonograms of any size by entering clues manually in `main.py`
+- Constraint propagation with a dirty queue (only re-checks lines that changed)
+- LRU-cached pattern generation (patterns for the same clue and line length are computed once)
+- MRV backtracking heuristic (branches on the most constrained cell first)
+- Validation step to confirm the solution satisfies all clues
+- PNG output using stdlib only (no Pillow required)
+- 30×30 stress test with a known solution (`tests/test_30x30.py`)
 
 ---
 
-## How nonograms are stored
+## Current limitations
 
-```python
-row_clues: list[list[int]]
-col_clues: list[list[int]]
+- **Puzzle clues must be entered manually** in `main.py` — there is no interactive input prompt.
+- **The image-to-clues parser (`src/parser.py`) is incomplete and unreliable** — see Known Issues below.
+- Rectangular puzzles (rows ≠ cols) are supported by the solver but have not been extensively tested.
+
+---
+
+## How to run
+
+### Requirements
+
+- Python 3.12+
+- No external packages needed for the solver.
+- `src/parser.py` (image parsing) requires OpenCV and NumPy:
+
+```bash
+pip install -r requirements.txt
 ```
 
-Each inner list is the clue for one row or column — consecutive block lengths,
-left to right / top to bottom. The grid size is `len(row_clues) × len(col_clues)`.
+### Solve a puzzle
 
-Example:
+1. Open `main.py` and edit `row_clues` and `col_clues` to match your puzzle.
+2. Run:
+
+```bash
+python main.py
+```
+
+The solution is saved as `solution.png` in the project root.
+
+### Run the stress test
+
+```bash
+python tests/test_30x30.py
+```
+
+This generates a 30×30 puzzle from a known solution, solves it, and verifies correctness.
+
+### Parse clues from an image (experimental)
+
+```bash
+python src/parser.py examples/matrix.png ROWS COLS
+```
+
+Replace `ROWS` and `COLS` with the number of puzzle rows and columns (not counting the clue areas).
+Debug output is saved to `debug_output/`.
+
+**Warning:** The image parser is not finished and may produce wrong clues. See Known Issues.
+
+---
+
+## Input format
+
+Clues are Python lists of lists. Each inner list is the clue for one row or column — the consecutive block lengths, left to right / top to bottom.
+
 ```python
 row_clues = [
-    [1, 1],
-    [5],
+    [1, 1],  # row 1: two separate filled cells
+    [5],     # row 2: five filled cells in a row
     [5],
     [3],
     [1],
@@ -85,28 +104,87 @@ col_clues = [
 ]
 ```
 
-## Cell states
+The grid size is inferred automatically: `len(row_clues)` rows × `len(col_clues)` columns.
 
-| Symbol | Meaning  | Internal value |
-|--------|----------|----------------|
-| `■`    | Filled   | `1`            |
-| ` `    | Empty    | `0`            |
-| `?`    | Unknown  | `-1`           |
+---
 
-## File structure
+## Project structure
 
 ```
 Nanogramm/
-├── app.py        # Entry point — defines the puzzle and runs the solver
-├── solver.py     # All solving logic (propagation, backtracking, validation)
-├── formatter.py  # Board and clue formatting for console output
-└── README.md     # This file
+├── main.py              # Entry point — define your puzzle here, then run
+├── requirements.txt     # Dependencies (only needed for image parser)
+│
+├── src/
+│   ├── solver.py        # Constraint propagation + MRV backtracking solver
+│   ├── formatter.py     # PNG rendering and console board display
+│   └── parser.py        # Image-to-clues pipeline (OpenCV, experimental)
+│
+├── tests/
+│   └── test_30x30.py    # 30×30 stress test with a known solution
+│
+├── examples/
+│   └── matrix.png       # Sample nonogram photo for the image parser
+│
+└── debug_output/        # Auto-generated by parser.py (gitignored)
 ```
 
-## How to run
+---
 
-```bash
-python app.py
-```
+## Algorithm overview
 
-Requires Python 3.12+. No external dependencies.
+### Pattern generation (cached)
+
+For a line with clue `[3, 2]` and length `8`, `solver.py` generates every valid arrangement:
+`■■■ ■■__`, `■■■ _■■_`, etc. Results are cached by `(clue, length)` so they are
+computed only once per unique combination.
+
+### Dirty-queue propagation
+
+Instead of re-scanning every row and column on every iteration, a set of "dirty" lines is
+maintained. When a cell in row `r` changes, column `c` is added to the dirty set (and vice
+versa). Only dirty lines are re-examined.
+
+### MRV backtracking
+
+When propagation cannot fix any more cells, the solver picks the unknown cell whose line has
+the **fewest** compatible arrangements and branches on it. This minimises the depth and width
+of the search tree.
+
+---
+
+## Known issues / Unfinished work
+
+### Image-to-clues parser is incomplete
+
+`src/parser.py` implements a 5-stage pipeline (geometry detection → cell extraction → cleaning → digit recognition → clue assembly) using OpenCV template matching. It works on clean, well-lit, axis-aligned photos but is **not reliable in general**:
+
+- Digit recognition uses hand-tuned MSE + projection-profile matching and often fails on real photos.
+- Two-digit clue splitting is fragile (valley detection on column histograms).
+- The pipeline has no fallback when a stage produces bad output — it silently passes bad data downstream.
+- **The parser is not integrated into `main.py`.** Clues from the parser must be manually copied in.
+
+### Manual input required
+
+There is no interactive input system. Clues must be hard-coded in `main.py` before each run.
+
+### Rectangular nonogram support
+
+The solver, formatter, and parser are all written to handle rectangular puzzles (rows ≠ cols). The example puzzle in `main.py` is 20×25, which is rectangular, and it solves correctly. However:
+
+- Rectangular puzzles have not been tested extensively.
+- The stress test (`tests/test_30x30.py`) only covers square grids.
+
+### No GUI or web interface
+
+Output is a PNG file only. There is no browser-based or interactive display.
+
+---
+
+## Planned improvements
+
+- Interactive CLI to enter clues without editing source files
+- Fix and stabilise the image parser, especially digit recognition
+- Add more test cases, including rectangular puzzles
+- Add a simple text-only board print to the console in addition to the PNG
+- Consider replacing template matching with a small trained classifier for digit recognition
