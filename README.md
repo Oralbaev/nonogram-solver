@@ -18,11 +18,9 @@ A Python CLI tool that solves nonogram (picross) puzzles from manually entered r
 
 ### Telegram bot — end-to-end demo
 
-<!-- Replace with your own screenshot of the Telegram conversation -->
 ![Telegram bot demo](docs/bot_demo.png)
-
-> **Add your own screenshots here.**
-> Drop them into the `docs/` folder (create it if needed) and update the paths above.
+![Telegram bot demo](docs/bot_demo2.png)
+![Telegram bot demo](docs/bot_demo3.png)
 
 ---
 
@@ -208,19 +206,7 @@ replies with the solved image.
 
 ### Set up
 
-1. **Create a bot** via [@BotFather](https://t.me/BotFather) on Telegram:
-   - Send `/newbot` and follow the prompts.
-   - Copy the token BotFather gives you (looks like `123456:ABC-DEF…`).
-
-2. **Create a `.env` file** in the project root:
-
-   ```
-   TELEGRAM_BOT_TOKEN=123456:ABC-DEF…
-   ```
-
-   (See `.env.example` for the template.)
-
-3. **Install dependencies** (includes the parser and bot packages):
+1. **Install dependencies** (includes the parser and bot packages):
 
    ```bash
    pip install -r requirements.txt
@@ -229,7 +215,7 @@ replies with the solved image.
    Also install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) — the default
    path expected on Windows is `C:\Program Files\Tesseract-OCR\tesseract.exe`.
 
-4. **Run the bot**:
+2. **Run the bot**:
 
    ```bash
    python bot.py
