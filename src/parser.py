@@ -200,18 +200,28 @@ def ocr_cell(cell_bgr: np.ndarray) -> int | None:
 
     Returns an integer (1–99) or None for an empty cell.
 
-    Strategy
-    --------
-    For each binarization threshold (190, 170, 150) in order:
-      1. Skip if the cell has fewer than MIN_INK_PX dark pixels (treat as empty).
-      2. Run all three Tesseract PSM modes and collect their results.
-      3. Apply resolution rules:
-         a. If all results are two-digit numbers, trust PSM 8 (single-word mode
-            reads complete multi-digit numbers most reliably).
-         b. Otherwise take the majority vote (≥ 2 of 3 PSMs agree).
-         c. If two PSMs give a two-digit result and one gives a different
-            one-digit result (PSM 8 dropped a digit), use the two-digit result.
-      4. If a value is resolved, return it; otherwise try the next threshold.
+    Per-threshold strategy (190 → 170 → 150):
+      1. Skip if fewer than MIN_INK_PX dark pixels (treat as empty).
+      2. Run all three Tesseract PSM modes; reject values outside 1–99.
+      3. Resolve:
+         a. All two-digit results → majority vote; PSM 8 as tiebreaker.
+         b. Majority vote (≥ 2 PSMs agree).
+         c. PSM 8 dropped a digit → use two-digit result that PSM 7/6 agree on.
+      4. If resolved, return immediately; otherwise continue to next threshold.
+
+    Cross-threshold fallbacks (when per-threshold resolution fails):
+      F1. Count every PSM/threshold read. If one value has ≥ 2 votes, return it,
+          preferring the value first seen at the HIGHEST threshold when tied.
+          (Fixes "9": PSM 6 reads "9" at thresholds 190 and 170 for 2 votes, while
+          PSM 8 reads the wrong "3" only at 170 and 150 — same count, but "9" was
+          first seen at the highest threshold so it wins.)
+      F2. Single-vote from the lowest threshold only: digit invisible at higher
+          thresholds but reads cleanly on the sharpest binarisation (e.g. "8" in
+          some cases that only PSM 8 reads at thresh=150).
+      F3. Topology correction: "8" is misread as "3" by PSM 8 at mid-thresholds
+          because the digit's two loops resemble the two arcs of "3". Detect the
+          difference via enclosed-region count: an "8" has 2 holes in its binary
+          representation, "3" has 0.
     """
     if cell_bgr.size == 0:
         return None
@@ -236,7 +246,9 @@ def ocr_cell(cell_bgr: np.ndarray) -> int | None:
                 pil_img, config=f"--psm {psm} {_TESS_BASE}"
             ).strip()
             if raw.isdigit():
-                out[psm] = int(raw)
+                v = int(raw)
+                if 1 <= v <= 99:  # reject impossible clue values (e.g. "415")
+                    out[psm] = v
         return out
 
     def _resolve(psm_results: dict[int, int]) -> int | None:
@@ -244,21 +256,35 @@ def ocr_cell(cell_bgr: np.ndarray) -> int | None:
         if not psm_results:
             return None
         values = list(psm_results.values())
+        counts: dict[int, int] = {}
+        for v in values:
+            counts[v] = counts.get(v, 0) + 1
 
-        # (a) All PSMs returned two-digit numbers but may disagree on the exact
-        #     value (e.g. "10" vs "19").  PSM 8 handles whole-word reading best.
-        if all(v >= 10 for v in values) and 8 in psm_results:
-            return psm_results[8]
+        # (a) All two-digit: use majority, but only commit when PSM 8 agrees with
+        #     (or is absent from) the majority. If PSM 8 holds a different value,
+        #     return None so the next threshold is tried — at lower thresholds the
+        #     PSMs often converge on the correct reading.
+        #     Examples this handles:
+        #       "10": {8:10, 7:19, 6:19} at thresh=190 → defer; at thresh=150 all
+        #             agree on 10 (PSM 7/6 confuse 0→9 at higher ink levels).
+        #       "15": {8:45, 7:15, 6:15} at thresh=190 → defer; at thresh=170
+        #             PSM 8 returns "415" (filtered out), leaving {7:15,6:15} with
+        #             no PSM 8 to disagree → returns 15 immediately.
+        if all(v >= 10 for v in values):
+            best = max(counts, key=counts.get)
+            if counts[best] >= 2:
+                if 8 not in psm_results or psm_results[8] == best:
+                    return best
+                return None  # PSM 8 disagrees — try next threshold
+            if 8 in psm_results:
+                return psm_results[8]
+            return values[0]
 
-        # Need at least 2 reads for confidence; a single PSM firing is not
-        # reliable enough — fall through to the next threshold instead.
+        # Need at least 2 reads for confidence.
         if len(values) < 2:
             return None
 
         # (b) Simple majority vote.
-        counts: dict[int, int] = {}
-        for v in values:
-            counts[v] = counts.get(v, 0) + 1
         best = max(counts, key=counts.get)
         if counts[best] >= 2:
             return best
@@ -273,13 +299,53 @@ def ocr_cell(cell_bgr: np.ndarray) -> int | None:
 
         return None
 
-    for thresh in _INK_THRESHOLDS:
+    global_votes: dict[int, int] = {}
+    first_seen_idx: dict[int, int] = {}  # value → index in _INK_THRESHOLDS (0 = highest)
+
+    for idx, thresh in enumerate(_INK_THRESHOLDS):
         binary = np.where(gray < thresh, 0, 255).astype(np.uint8)
         if int((binary == 0).sum()) < MIN_INK_PX:
             continue
-        val = _resolve(_read_psms(binary))
+        psm_results = _read_psms(binary)
+        for v in psm_results.values():
+            global_votes[v] = global_votes.get(v, 0) + 1
+            if v not in first_seen_idx:
+                first_seen_idx[v] = idx
+        val = _resolve(psm_results)
         if val is not None:
             return val
+
+    if not global_votes:
+        return None
+
+    best_count = max(global_votes.values())
+
+    # F1: Cross-threshold vote — prefer the value first seen at the highest threshold
+    # when there is a tie, since a read at thresh=190 (most ink, most complete image)
+    # is more reliable than a read at thresh=150 (fewest ink pixels).
+    if best_count >= 2:
+        candidates = [v for v, c in global_votes.items() if c == best_count]
+        return min(candidates, key=lambda v: first_seen_idx[v])
+
+    # F2: Single-vote at the lowest threshold only — digit that only becomes readable
+    # after aggressive binarisation (e.g. "8" visible only at thresh=150).
+    last_idx = len(_INK_THRESHOLDS) - 1
+    if (len(global_votes) == 1
+            and all(first_seen_idx[v] == last_idx for v in global_votes)):
+        return list(global_votes.keys())[0]
+
+    # F3: Topology correction for "8" misread as "3" — an "8" has 2 enclosed regions
+    # (the two loops), while "3" has 0. When the only vote is for "3" and the cell
+    # topology has ≥ 2 holes, override to "8".
+    if set(global_votes.keys()) == {3} and global_votes[3] == 1:
+        thresh_3 = _INK_THRESHOLDS[first_seen_idx[3]]
+        binary_3 = np.where(gray < thresh_3, 0, 255).astype(np.uint8)
+        inv = cv2.bitwise_not(binary_3)
+        _, hier = cv2.findContours(inv, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+        if hier is not None:
+            holes = sum(1 for i in range(len(hier[0])) if hier[0][i][3] >= 0)
+            if holes >= 2:
+                return 8
 
     return None
 
@@ -360,6 +426,34 @@ def validate_clues(
 
 
 # ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def parse_nonogram_image(
+    img_path: str, n_rows: int, n_cols: int
+) -> tuple[list[list[int]], list[list[int]]]:
+    """Parse a nonogram screenshot and return (row_clues, col_clues).
+
+    Raises FileNotFoundError, RuntimeError, or ValueError on failure.
+    """
+    if not os.path.isfile(img_path):
+        raise FileNotFoundError(f"Image not found: {img_path}")
+    # cv2.imread() silently fails on paths with non-ASCII characters (e.g. Cyrillic).
+    # np.fromfile + imdecode works correctly with any Unicode path.
+    img_bgr = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if img_bgr is None:
+        raise RuntimeError(f"Could not load image: {img_path}")
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    h_lines, v_lines = detect_grid_lines(gray)
+    n_top_rows, n_left_cols = infer_clue_dimensions(h_lines, v_lines, n_rows, n_cols)
+    row_clues, col_clues = build_clues(
+        img_bgr, h_lines, v_lines, n_top_rows, n_left_cols, n_rows, n_cols
+    )
+    validate_clues(row_clues, col_clues, n_rows, n_cols)
+    return row_clues, col_clues
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -391,7 +485,7 @@ def parse_args() -> tuple[str, int, int]:
 def main() -> None:
     img_path, n_rows, n_cols = parse_args()
 
-    img_bgr = cv2.imread(img_path)
+    img_bgr = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8), cv2.IMREAD_COLOR)
     if img_bgr is None:
         print(f"Error: could not load image: {img_path}", file=sys.stderr)
         sys.exit(1)

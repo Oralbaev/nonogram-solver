@@ -2,3 +2,8 @@
 # parser.py (image-to-clues) requires the packages below.
 opencv-python>=4.5
 numpy>=1.21
+pytesseract>=0.3
+
+# Telegram bot (bot.py)
+python-telegram-bot>=20.0
+python-dotenv>=1.0

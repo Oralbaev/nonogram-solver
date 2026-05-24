@@ -3,9 +3,8 @@
 Usage:
     python main.py
 
-The puzzle clues are defined below. Edit row_clues and col_clues to change
-the puzzle. The solver works for any rectangular grid; dimensions are inferred
-automatically from the number of clue lists.
+Prompts for an image file name and board dimensions, parses clues from the
+image, solves the puzzle, and saves the result as solution.png.
 """
 
 import sys
@@ -15,27 +14,45 @@ import os
 
 from src.solver import UNKNOWN, solve, validate
 from src.formatter import render_png
+from src.parser import parse_nonogram_image
 
-# ---------------------------------------------------------------------------
-# Puzzle definition (20 rows × 25 columns)
-# Edit these lists to solve a different puzzle.
-# ---------------------------------------------------------------------------
 
-row_clues = [[5, 4], [2, 2, 6], [2, 2, 2, 5], [1, 1, 1, 1, 4], [1, 1, 1, 1, 2], [2, 2, 2, 2, 1], [2, 2, 3, 1, 4], [5, 4, 6], [1, 2, 2, 1, 2, 2], [5, 3, 2, 1, 2, 2], [2, 2, 2, 1, 6], [2, 3, 5, 8], [1, 5, 1, 3, 6], [1, 6, 1, 5, 2, 2], [2, 3, 11, 2, 2], [2, 2, 2, 2, 6], [5, 5, 1, 4], [2, 2], [1, 2, 2], [4, 1], [4, 1], [4, 2], [4, 2], [10, 3, 2, 12], [3], [10, 3, 2, 11], [2, 2], [9, 2, 5, 9], [4, 6], [7, 5, 10]]
-col_clues = [[1, 1, 1, 1], [1, 1, 1, 1], [4, 1, 1, 1, 1], [4, 2, 2, 1, 1, 1, 1], [2, 2, 2, 2, 2, 1, 1, 1, 1], [2, 2, 1, 4, 1, 1, 1, 1, 1], [1, 1, 1, 4, 1, 1, 1, 1, 1], [1, 3, 4, 1, 1, 1, 1], [1, 1, 2, 2, 2, 1, 1, 1, 1], [2, 3, 2, 3, 1, 1, 2], [2, 2, 2, 1, 1, 2], [4, 1, 4, 2, 5], [1, 1, 1, 3, 5], [3, 2, 5, 4, 1], [1, 2, 2, 4, 4, 1], [2, 1, 2, 2, 1, 4, 2, 2], [2, 1, 4, 2, 1, 3, 4, 2], [3, 2, 1, 3, 2, 1, 2, 5], [4, 2, 5, 2, 2, 1, 3], [6, 10, 2, 1, 1, 2], [4, 1, 1, 1, 1], [2, 3, 1, 1, 1, 1], [9, 1, 1, 1, 1], [11, 1, 1, 1, 1], [2, 3, 2, 1, 1, 1, 1], [2, 3, 2, 1, 1, 1, 1], [5, 5, 1, 1, 1, 1], [3, 3, 1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1]]
-
+def _prompt_int(prompt: str) -> int:
+    while True:
+        raw = input(prompt).strip()
+        if raw.isdigit() and int(raw) > 0:
+            return int(raw)
+        print("  Please enter a positive integer.")
 
 
 def main() -> None:
-    """Run the nonogram solver and save the result as solution.png."""
-    rows = len(row_clues)
-    cols = len(col_clues)
-    board = [[UNKNOWN] * cols for _ in range(rows)]
-
     print("=== Nonogram Solver ===")
-    print(f"Grid: {rows} rows × {cols} cols")
-    print()
 
+    filename = input("Enter image file name: ").strip()
+    img_path = os.path.join("examples", filename)
+    if not os.path.isfile(img_path):
+        print(f"Error: file not found: {img_path}")
+        return
+
+    n_cols = _prompt_int("Enter number of columns: ")
+    n_rows = _prompt_int("Enter number of rows: ")
+
+    print(f"\nParsing {img_path} ({n_rows} rows × {n_cols} cols)...")
+    try:
+        row_clues, col_clues = parse_nonogram_image(img_path, n_rows, n_cols)
+    except (FileNotFoundError, RuntimeError, ValueError) as e:
+        print(f"Parser error: {e}")
+        return
+
+    if len(row_clues) != n_rows or len(col_clues) != n_cols:
+        print(
+            f"Error: parsed {len(row_clues)} row clue(s) and {len(col_clues)} col clue(s), "
+            f"expected {n_rows} and {n_cols}."
+        )
+        return
+
+    board = [[UNKNOWN] * n_cols for _ in range(n_rows)]
+    print("Solving...")
     solution = solve(board, row_clues, col_clues)
 
     if solution is None:

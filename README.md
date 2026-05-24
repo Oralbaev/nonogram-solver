@@ -6,6 +6,26 @@ A Python CLI tool that solves nonogram (picross) puzzles from manually entered r
 
 ---
 
+## Screenshots
+
+### Input — puzzle screenshot sent to the bot
+
+![Input puzzle](examples/case_01_matrix.png)
+
+### Output — solved grid (PNG)
+
+![Solved nonogram](solution.png)
+
+### Telegram bot — end-to-end demo
+
+<!-- Replace with your own screenshot of the Telegram conversation -->
+![Telegram bot demo](docs/bot_demo.png)
+
+> **Add your own screenshots here.**
+> Drop them into the `docs/` folder (create it if needed) and update the paths above.
+
+---
+
 ## What it does
 
 You provide the row and column clues for a nonogram puzzle.
@@ -178,6 +198,65 @@ The solver, formatter, and parser are all written to handle rectangular puzzles 
 ### No GUI or web interface
 
 Output is a PNG file only. There is no browser-based or interactive display.
+
+---
+
+## Telegram bot
+
+`bot.py` wraps the solver in a Telegram bot. Send it a screenshot of a nonogram puzzle and it
+replies with the solved image.
+
+### Set up
+
+1. **Create a bot** via [@BotFather](https://t.me/BotFather) on Telegram:
+   - Send `/newbot` and follow the prompts.
+   - Copy the token BotFather gives you (looks like `123456:ABC-DEF…`).
+
+2. **Create a `.env` file** in the project root:
+
+   ```
+   TELEGRAM_BOT_TOKEN=123456:ABC-DEF…
+   ```
+
+   (See `.env.example` for the template.)
+
+3. **Install dependencies** (includes the parser and bot packages):
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+   Also install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) — the default
+   path expected on Windows is `C:\Program Files\Tesseract-OCR\tesseract.exe`.
+
+4. **Run the bot**:
+
+   ```bash
+   python bot.py
+   ```
+
+### How to use
+
+1. Open your bot in Telegram and send `/start`.
+2. Send a screenshot of the nonogram puzzle (PNG or JPG).
+3. Reply with the **number of columns** when asked.
+4. Reply with the **number of rows** when asked.
+5. The bot runs the solver and sends back the solved image.
+
+Send `/cancel` at any point to abort the current session.
+
+### How it connects to the solver
+
+`bot.py` calls three functions from the existing codebase directly — no subprocess or CLI wrapping:
+
+| Step | Function | Module |
+|------|----------|--------|
+| Parse clues from image | `parse_nonogram_image(path, n_rows, n_cols)` | `src/parser.py` |
+| Solve the puzzle | `solve(board, row_clues, col_clues)` | `src/solver.py` |
+| Render result to PNG | `render_png(board, filepath)` | `src/formatter.py` |
+
+The solver runs in a background thread pool so it does not block the bot's event loop.
+Temporary files (input image, output PNG) are stored in `tmp_bot/` and deleted after each session.
 
 ---
 
